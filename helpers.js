@@ -1,34 +1,108 @@
+const yts = require( 'yt-search' )
+const ytdl = require('ytdl-core');
+
+
+
+const updateState = (state, newState)=>{
+    let obj = {...state};
+    try{
+        for(let key of Object.keys(newState)){
+            obj[key] = newState[key];
+        };
+    }catch(err){
+        console.log(err)
+    }
+    return obj;
+}
+
+
 const parseArgs = args =>{
     const output = [];
-
     for(let i=0; i < args.length; i++){
         output.push(args[i])
         if(args[i][0] == '"'){
-            let j = i + 1;
-            while(j < args.length && args[j][args[j].length - 1] != '"'){
+            if(args[i][args[i].length - 1] != '"'){
+                let j = i + 1;
+                while(j < args.length && args[j][args[j].length - 1] != '"'){
+                    output[output.length - 1] += " " + args[j];
+                    j++;
+                };
                 output[output.length - 1] += " " + args[j];
-                j++;
-            };
-            output[output.length - 1] += " " + args[j];
-            i = j;
+                i = j;
+            }
             output[output.length - 1] = output[output.length - 1].replace(/"/g, '');
         };
     }
-    
 
     return output;
 }
 
+const searchMusic = async args => {
+    let query = "";
+    let artist = "";
+    let url = "";
 
-const streamMusic = async (msg, stream) =>{
+
+    for(let i=0; i < args.length; i++){
+        if(args[i] == "--url"){
+            url = args[i+1] || "";
+            break;
+        };
+
+        if(args[i] == "--artist"){
+            artist = args[i+1] || "";
+        };
+
+        if(args[i-1] != "--artist" && args[i] != "--artist"){
+            query += args[i]
+        };
+
+    };
+    
+    // If user didn't use url
+    let song;
+    if(url == ""){
+        const result = await yts(query);
+        song = result.all[0];
+        if(artist.length > 0){
+            for(let i=0; i < result.all.length; i++){
+                if(artist.toUpperCase() == result.all[i].author.name.toUpperCase()){
+                    song = result.all[i];
+                    break;
+                }
+            };
+        };
+    };
+
+    return {
+        url: song ? song.url : url,
+        title: song ? song.title : null,
+        artist: song ? song.author.name : null
+    };
+}
+
+const streamMusic =  (stream, connection) =>{
     try{
-        const channel = msg.guild.me.voice.channel;
-        const connection = await channel.join();
         connection.play(stream);
-        return connection;
     }catch(err){
         throw err;
     }
+}
+
+const playSong = (song, connection, emitter)=>{
+    const options = {filter: "audioonly", quality: "highestaudio"}
+    const stream = ytdl(song.url, options);
+    streamMusic(stream, connection)
+
+    emitter.emit("stream", stream);
+
+    stream.on("close", ()=>{
+        emitter.emit("end");
+    })
+
+    stream.on("end", ()=>{
+        emitter.emit("end");
+    });
 }
 
 function getVoiceChannels(msg){
@@ -42,61 +116,54 @@ function getVoiceChannels(msg){
     return vchannels;
 }
 
-function joinChannelByName(msg, channelName){
-    channel = getVoiceChannels(msg)[channelName.toUpperCase()];
+const getChannelByName = (msg, channelName)=>{
+    const channel = getVoiceChannels(msg)[channelName.toUpperCase()];
 
-    if (channel == undefined) {
-        msg.reply(`${channelName} doesn't exist`)
-        return;
-    };
-    channel.join()
-        .then(connection => {
-            msg.reply(`Joined ${channelName}`);
-        })
-        .catch(err => {
-            console.log(err);
-            msg.reply(`Couldn't join ${channelName}`)
-        });
+    return channel;
 }
 
 
-const joinChannel = (msg, channelName, secondaryChannel) => {
-    if (!channelName || channelName == "") {
-        msg.guild.members.fetch(msg.author)
-            .then(member => {
-                const channel = member.voice.channel;
-                if (!channel) {
-                    msg.reply("You are not connected to any of the voice channels")
-
-                    if(secondaryChannel){
-                        joinChannelByName(msg, secondaryChannel)
-                    }else{
-                        throw new Error("Cannot join voice channel")
-                    }
-
-                }
-                channel.join()
-                    .then(connection => {
-                        msg.reply(`Joined ${connection.channel.name}`);
-                    })
-                    .catch(err => {
-                        console.log(err);
-                        msg.reply(`Couldn't join voice channel`)
-                    });
-
-            })
-            .catch(err => {
-                console.log(err)
-                throw new Error("Cannot join voice channel")
-            });
-
-    } else {
-        joinChannelByName(msg, channelName)   
+const joinChannel = async (msg, channelName, secondaryChannel) => {
+    let newState = {
+        dispatcher: null,
+        channel: null
     }
+
+    try {
+        if (!channelName || channelName == "") {
+
+            const member = await msg.guild.members.fetch(msg.author);
+            newState.channel = member.voice.channel;
+
+            // Member is not in vchannel
+            if (!newState.channel) {
+                msg.reply("You are not connected to any of the voice channels")
+
+                if (secondaryChannel) {
+                    newState.channel = getChannelByName(msg, secondaryChannel);
+                };
+            };
+
+        } else {
+            newState.channel = getChannelByName(msg, channelName)
+        };
+
+        newState.dispatcher = await newState.channel.join();
+        msg.reply(`Joined ${newState.channel.name}`);
+
+    } catch (err) {
+        console.log(err)
+        msg.reply("Cannot join voice channel")
+    }
+
+    return newState;
 }
 
 module.exports = {
     parseArgs,
+    updateState,
     joinChannel,
-    streamMusic
+    streamMusic,
+    searchMusic,
+    playSong
 }
