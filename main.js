@@ -1,15 +1,16 @@
 require('dotenv').config()
 const Discord = require("discord.js");
 const events = require("events");
-const { emit } = require('process');
+const { type } = require('os');
 
 
 
 
-const {handleHelp, handleError, handleJoin, handleLeave, handlePlay, handleStop, handleResume, handlePause, handleCue, handleClearCue, handleSkip} = require("./handlers")
+const {handleHelp, handleError, handleJoin, handleLeave, handlePlay, handleStop, handleResume, handlePause, handleCue, handleClearCue, handleSkip, handlePlaylist} = require("./handlers")
 const {parseArgs, updateState, playSong} = require("./helpers");
 
 const client = new Discord.Client();
+const {MessageEmbed} = Discord;
 
 let state = {
     dispatcher: null,
@@ -17,6 +18,8 @@ let state = {
     queue: [],
     currentSong: null,
     stream: null,
+    playlist: null,
+    loading: false,
 }
 
 // Message only valid for event emitter
@@ -27,8 +30,24 @@ const emitter = new events.EventEmitter();
 emitter.on("update", newState=>{
     if(newState){
         state = updateState(state, newState);
-    }
+    };
+    state.loading = false;
 });
+
+emitter.on("leave", ()=>{
+    let newState = {
+        dispatcher: null,
+        channel: null,
+        currentSong: null,
+        playlist: null,
+        queue: [],
+        stream: null
+    };
+    if(state.channel)
+        state.channel.leave();
+
+    emitter.emit("update", newState);
+})
 
 emitter.on("play", async song => {
     const connection = await state.dispatcher;
@@ -45,18 +64,22 @@ emitter.on("play", async song => {
 
     playSong(song, connection, emitter);
 
-    MESSAGE.channel.send(`Playing ${song.title? song.title : song.url}`);
-
     let newState = {
         currentSong: song
     }
 
     emitter.emit("update", newState);
 
+    if(state.playlist){
+        emitter.emit("embedPlaylist", state.playlist);
+    };
+
+    emitter.emit("embedSong", song);
 })
 
-emitter.on("end", ()=>{
+emitter.on("end", stop=>{
     emitter.emit("update", {stream: null});
+
 
     const nextSong = state.queue[0];
     if(nextSong){
@@ -66,15 +89,17 @@ emitter.on("end", ()=>{
 });
 
 emitter.on("pause", async ()=>{
-    if(state.currentSong == null)
+    if(state.currentSong == null || state.stream == null)
         return;
     const connection = await state.dispatcher
     connection.dispatcher.pause(true);
 })
 
 emitter.on("resume", async ()=>{
-    if(state.currentSong == null)
+    if(state.currentSong == null || state.stream == null){
+        emitter.emit("end");
         return;
+    }
     
     const connection = await state.dispatcher;
 
@@ -91,10 +116,51 @@ emitter.on("stream", stream =>{
 
 emitter.on("stop", ()=>{
     if(state.currentSong != null){
-        state.stream.emit("close");
-        MESSAGE.channel.send(`Stopped playing ${state.currentSong.title? state.currentSong.title : state.currentSong.url}`);
+        setTimeout(()=>{
+            emitter.emit("pause")
+            state.stream.destroy();
+            emitter.emit("update", {currentSong: null, stream: null})
+        }, 1000);
     }
 })
+
+
+emitter.on("embedSong", song =>{
+    const embed = new MessageEmbed()
+        .setColor("#a7ff83")
+        .setTitle(song.title)
+        .setURL(song.url)
+        .setDescription("\u200B")
+        .setAuthor(MESSAGE.author.username, MESSAGE.author.avatarURL())
+        .setThumbnail(song.thumbnail);
+    
+    MESSAGE.channel.send(embed);
+})
+
+emitter.on("embedPlaylist", async playlist=>{
+    let list = "";
+    for(let elem of playlist.songs){
+        let test = list + `- ${elem.title}\n`;
+        if(test.length > 2000)
+            break;
+        list += `- ${elem.title}\n`;
+    };
+    list += '\n';
+
+    const embed = new MessageEmbed()
+        .setColor("#ff304f")
+        .setTitle(playlist.title)
+        .setURL(playlist.url)
+        .setDescription("\u200B" + list)
+        .setAuthor(MESSAGE.author.username, MESSAGE.author.avatarURL())
+        .setThumbnail(playlist.thumbnail);
+
+    MESSAGE.channel.send(embed);
+});
+
+emitter.on("loading", ()=>{
+    state.loading = true;
+});
 
 
 client.on('ready', () => {
@@ -103,6 +169,14 @@ client.on('ready', () => {
 
 
 client.on("message", async msg=>{
+    if(msg.author == client.user)
+        return;
+
+    if(state.loading){
+        msg.reply("Wait a moment...");
+        return;
+    }
+
     MESSAGE = msg;
     if(msg.content[0] == "!"){
         const input = msg.content.split(" ");
@@ -139,6 +213,9 @@ client.on("message", async msg=>{
                 break;
             case "SKIP":
                 handleSkip(msg, emitter);
+                break;
+            case "PLAYLIST":
+                await handlePlaylist(msg, args, emitter);
                 break;
             default:
                 handleError(msg);

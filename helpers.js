@@ -60,10 +60,9 @@ const searchMusic = async args => {
     };
     
     // If user didn't use url
-    let song;
     if(url == ""){
         const result = await yts(query);
-        song = result.all[0];
+        const song = result.all[0];
         if(artist.length > 0){
             for(let i=0; i < result.all.length; i++){
                 if(artist.toUpperCase() == result.all[i].author.name.toUpperCase()){
@@ -72,12 +71,21 @@ const searchMusic = async args => {
                 }
             };
         };
+        url = song.url;
     };
 
+    if(!ytdl.validateURL(url)){
+        return null;
+    };
+
+    const videoID = ytdl.getURLVideoID(url);
+    const song = await yts({videoId: videoID});
+    
     return {
-        url: song ? song.url : url,
-        title: song ? song.title : null,
-        artist: song ? song.author.name : null
+        url: song.url,
+        title: song.title,
+        artist: song.author.name,
+        thumbnail: song.thumbnail,
     };
 }
 
@@ -97,7 +105,7 @@ const playSong = (song, connection, emitter)=>{
     emitter.emit("stream", stream);
 
     stream.on("close", ()=>{
-        emitter.emit("end");
+
     })
 
     stream.on("end", ()=>{
@@ -159,11 +167,35 @@ const joinChannel = async (msg, channelName, secondaryChannel) => {
     return newState;
 }
 
+const getPlaylistID = (url)=>{
+    let id = null
+    if(url){
+        let parts = url.split("&");
+        parts.forEach(elem=>{
+            elem = elem.split("=");
+            if(elem[0] == "list")
+                id = elem[1]
+        })
+    }
+    return id;
+}
+
+const fetchPlaylist = async (url)=>{
+    const playlistID = getPlaylistID(url);
+
+    if(!playlistID)
+        return null;
+    
+    const list = await yts({listId: playlistID});
+    return list;
+}
+
 module.exports = {
     parseArgs,
     updateState,
     joinChannel,
     streamMusic,
     searchMusic,
-    playSong
+    playSong,
+    fetchPlaylist,
 }
