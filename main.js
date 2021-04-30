@@ -1,7 +1,6 @@
 require('dotenv').config()
 const Discord = require("discord.js");
 const events = require("events");
-const { emit } = require('process');
 
 
 

@@ -1,4 +1,3 @@
-const validUrl = require('valid-url');
 const yts = require('yt-search');
 
 
