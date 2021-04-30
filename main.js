@@ -1,13 +1,13 @@
 require('dotenv').config()
 const Discord = require("discord.js");
 const events = require("events");
-const { type } = require('os');
+const { emit } = require('process');
 
 
 
 
-const {handleHelp, handleError, handleJoin, handleLeave, handlePlay, handleStop, handleResume, handlePause, handleCue, handleClearCue, handleSkip, handlePlaylist} = require("./handlers")
-const {parseArgs, updateState, playSong} = require("./helpers");
+const {handleHelp, handleError, handleJoin, handleLeave, handlePlay, handleStop, handleResume, handlePause, handleCue, handleClearCue, handleSkip, handlePlaylist, handleLive} = require("./handlers")
+const {parseArgs, updateState, playSong, playLive} = require("./helpers");
 
 const client = new Discord.Client();
 const {MessageEmbed} = Discord;
@@ -162,6 +162,32 @@ emitter.on("loading", ()=>{
     state.loading = true;
 });
 
+emitter.on("live", async live=>{
+    const connection = await state.dispatcher;
+    if(!connection){
+        MESSAGE.channel.send("Precious should join a voice channel before streaming");
+        return;
+    }
+    emitter.emit("embedLive", live);
+    playLive(live, connection, emitter);
+    emitter.emit("update", {currentSong: live, queue: [], playlist: null});
+
+    
+})
+
+emitter.on("embedLive", live=>{
+    const embed = new MessageEmbed()
+        .setColor("#ace7ef")
+        .setTitle(live.title)
+        .setURL(live.url)
+        .setDescription("\u200B")
+        .setAuthor(MESSAGE.author.username, MESSAGE.author.avatarURL())
+        .setThumbnail(live.thumbnail);
+    
+    MESSAGE.channel.send(embed);
+})
+
+// CLIENT DISCORD THINGS
 
 client.on('ready', () => {
     console.log(`Logged in as ${client.user.tag}!`);
@@ -209,13 +235,16 @@ client.on("message", async msg=>{
                 await handleCue(msg, state, args, emitter);
                 break;
             case "CLEAR-CUE":
-                await handleClearCue(msg, emitter);
+                handleClearCue(msg, emitter);
                 break;
             case "SKIP":
                 handleSkip(msg, emitter);
                 break;
             case "PLAYLIST":
                 await handlePlaylist(msg, args, emitter);
+                break;
+            case "LIVE":
+                await handleLive(msg, args, emitter);
                 break;
             default:
                 handleError(msg);

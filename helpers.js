@@ -104,10 +104,6 @@ const playSong = (song, connection, emitter)=>{
 
     emitter.emit("stream", stream);
 
-    stream.on("close", ()=>{
-
-    })
-
     stream.on("end", ()=>{
         emitter.emit("end");
     });
@@ -145,7 +141,7 @@ const joinChannel = async (msg, channelName, secondaryChannel) => {
 
             // Member is not in vchannel
             if (!newState.channel) {
-                msg.reply("You are not connected to any of the voice channels")
+                msg.channel.send("You are not connected to any of the voice channels")
 
                 if (secondaryChannel) {
                     newState.channel = getChannelByName(msg, secondaryChannel);
@@ -157,11 +153,11 @@ const joinChannel = async (msg, channelName, secondaryChannel) => {
         };
 
         newState.dispatcher = await newState.channel.join();
-        msg.reply(`Joined ${newState.channel.name}`);
+        msg.channel.send(`Joined ${newState.channel.name}`);
 
     } catch (err) {
         console.log(err)
-        msg.reply("Cannot join voice channel")
+        msg.channel.send("Cannot join voice channel")
     }
 
     return newState;
@@ -181,13 +177,59 @@ const getPlaylistID = (url)=>{
 }
 
 const fetchPlaylist = async (url)=>{
-    const playlistID = getPlaylistID(url);
-
-    if(!playlistID)
+    try{
+        const playlistID = getPlaylistID(url);
+        const list = await yts({listId: playlistID});
+        return list;
+    }catch(err){
         return null;
-    
-    const list = await yts({listId: playlistID});
-    return list;
+    }
+}
+
+const fetchLive = async (url)=>{
+    try{
+        const liveID = ytdl.getURLVideoID(url);
+        const live = await yts({videoId: liveID});
+
+        return {
+            title: live.title,
+            url: live.url,
+            artist: live.author.name,
+            thumbnail: live.thumbnail
+        };
+    }catch(err){
+        return null;
+    }
+}
+
+const playLive = async (live, connection, emitter)=>{
+    try{
+        // const options = {filter: "audioonly", quality: "lowestaudio"}
+        // let stream = ytdl(live.url, options);
+        // connection.play(stream);
+        let songInfo = await ytdl.getInfo(live.url);
+        let options = { highWaterMark: 1<<12 };
+        let hlsFormats = ytdl.filterFormats(songInfo.formats, (format) => format.isHLS);
+        let topFormatLabel = hlsFormats[0].qualityLabel;
+        let rawQuality = parseInt(topFormatLabel.slice(0, topFormatLabel.length - 1));
+        if (rawQuality > 720) {
+            options.filter = (format) => format.isHLS && format.qualityLabel === '720p';
+          } else {
+            options.filter = (format) => format.isHLS;
+        }
+
+        let stream = ytdl.downloadFromInfo(songInfo, options);
+        connection.play(stream);
+
+        emitter.emit("stream", stream);
+
+        stream.on("end", ()=>{
+            emitter.emit("end");
+        });
+        
+    }catch(err){
+        console.log(err);
+    }
 }
 
 module.exports = {
@@ -198,4 +240,6 @@ module.exports = {
     searchMusic,
     playSong,
     fetchPlaylist,
+    fetchLive,
+    playLive,
 }

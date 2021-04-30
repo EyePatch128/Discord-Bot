@@ -2,7 +2,7 @@ const validUrl = require('valid-url');
 const yts = require('yt-search');
 
 
-const {playSong, joinChannel, searchMusic, fetchPlaylist} = require("./helpers")
+const {joinChannel, searchMusic, fetchPlaylist, fetchLive} = require("./helpers")
 
 
 const handleHelp = msg =>{
@@ -38,7 +38,7 @@ const handleLeave = (msg, state, emitter)=>{
 
     }catch(err){
         console.log(err);
-        msg.reply("Precious is currently not in a voice channel")
+        msg.channel.send("Precious is currently not in a voice channel")
     };
 }
 
@@ -129,13 +129,6 @@ const handleSkip = (msg, emitter)=>{
 const handlePlaylist = async (msg, args, emitter)=>{
     if(args.length == 0)
         return
-
-    // Clear queue
-    let newState = {
-        queue: []
-    }
-
-    emitter.emit("update", newState);
     
     let url = ""
     for(let arg of args){
@@ -182,13 +175,36 @@ const handlePlaylist = async (msg, args, emitter)=>{
             currentSong: null,
         }
     
+        msg.channel.send(`Playlist \`${playlist.title}\` added\n`);
+        msg.channel.send('`!play` to play playlist');
+        
         emitter.emit("update", newState);
 
-        msg.channel.send(`Playlist \`${playlist.title}\` added`);
-
     }else{
-        msg.channel.send(`${url} is not a valid URL`);
-    }
+        msg.channel.send(`Playlist does not exist`);
+    };
+
+}
+
+const handleLive = async (msg, args, emitter)=>{
+
+    let url = ""
+    for(let arg of args){
+        if(arg != ""){
+            url = arg
+            break;
+        }
+    };
+    if(!url){
+        msg.channel.send("URL required")
+        return;
+    };
+
+    // emitter.emit("loading");
+
+    const live = await fetchLive(url);
+
+    emitter.emit("live", live);
 
 }
 
@@ -204,5 +220,6 @@ module.exports = {
     handleCue,
     handleClearCue,
     handleSkip,
-    handlePlaylist
+    handlePlaylist,
+    handleLive
 }
