@@ -1,3 +1,2 @@
-.env
-.credentials/
 node_modules
+.env
