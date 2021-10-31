@@ -3,6 +3,8 @@
 This is a discord bot for playing music from youtube
 It uses `discord.js` library for interacting with the discord server and `yt-search` and `ytdl-core` libraries to search and fetch songs
 
+Invite using : https://discord.com/api/oauth2/authorize?client_id=832396420454547465&permissions=274914757904&scope=bot
+
 Commands start with `!`
 
 `!help`:
